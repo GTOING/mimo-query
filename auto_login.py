@@ -137,8 +137,10 @@ def add_account():
         email_pass = getpass("邮箱授权码（非登录密码，在邮箱设置→IMAP中获取）: ")
         email_imap = input("IMAP 服务器（默认自动识别，直接回车）: ").strip()
         if not email_imap:
-            if "163.com" in email_addr or "126.com" in email_addr:
+            if "163.com" in email_addr:
                 email_imap = "imap.163.com"
+            elif "126.com" in email_addr:
+                email_imap = "imap.126.com"
             elif "qq.com" in email_addr or "foxmail.com" in email_addr:
                 email_imap = "imap.qq.com"
             elif "gmail.com" in email_addr:

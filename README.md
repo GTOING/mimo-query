@@ -375,7 +375,7 @@ python3 auto_login.py --check
 | `qq.com` / `vip.qq.com` | `imap.qq.com` | — |
 | `foxmail.com` | `imap.qq.com` | — |
 | `163.com` / `vip.163.com` | `imap.163.com` | 自动发送 ID 命令 |
-| `126.com` | `imap.163.com` | 自动发送 ID 命令 |
+| `126.com` | `imap.126.com` | 自动发送 ID 命令 |
 | `gmail.com` | `imap.gmail.com` | 需要应用专用密码 |
 | `outlook` / `hotmail` | `outlook.office365.com` | — |
 | 其他 | 提示手动输入 | — |
