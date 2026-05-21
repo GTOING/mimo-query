@@ -1,0 +1,29 @@
+# Local account credentials and cookies
+mimo-accounts.json
+*.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments and local dependency caches
+.venv/
+venv/
+env/
+.conda/
+.wdm/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# OS/editor artifacts
+.DS_Store
+.vscode/
+.idea/
