@@ -1,5 +1,6 @@
 # Local account credentials and cookies
 mimo-accounts.json
+mimo-history.json
 *.local.json
 
 # Python

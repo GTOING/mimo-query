@@ -103,6 +103,25 @@ def fetch_subscription(cookie):
     }
 
 
+def save_history(accounts_data):
+    """将查询结果追加到历史文件"""
+    history_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mimo-history.json")
+    history = []
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                history = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            history = []
+
+    history.append(accounts_data)
+    history = history[-50:]  # 只保留最近 50 条
+
+    with open(history_file, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+    print(f"历史记录已保存（共 {len(history)} 条）", file=sys.stderr)
+
+
 def format_number(n):
     return f"{n:,}"
 
@@ -154,7 +173,7 @@ def query_single(cookie):
     return fetch_subscription(cookie)
 
 
-def query_accounts(accounts):
+def query_accounts(accounts, save_history_flag=False):
     """并发查询多账号，按原始顺序输出结果"""
     skipped = []  # (index, label, reason)
     futures = {}  # future -> (index, label)
@@ -187,6 +206,9 @@ def query_accounts(accounts):
         [(i, label, None, res) for i, (label, res) in results.items()]
     )
 
+    # 收集结构化数据用于历史记录
+    history_data = {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "accounts": {}}
+
     for i, label, reason, res in all_items:
         if is_multi:
             if not first:
@@ -196,13 +218,26 @@ def query_accounts(accounts):
         if reason:
             print(f"跳过: {reason}")
             errors += 1
+            history_data["accounts"][label] = {"status": "skipped", "reason": reason}
             continue
         queried += 1
         if isinstance(res, Exception):
             print(f"错误: {res}", file=sys.stderr)
             errors += 1
+            history_data["accounts"][label] = {"status": "error", "reason": str(res)}
         else:
             print_info(res, label=None if is_multi else label)
+            history_data["accounts"][label] = {
+                "plan": res.get("plan_name", ""),
+                "quota": res.get("total_credits", 0),
+                "used": res.get("used_credits", 0),
+                "expires": res.get("current_period_end", ""),
+                "auto_renew": res.get("enable_auto_renew", False),
+            }
+
+    # 保存历史记录
+    if save_history_flag and history_data["accounts"]:
+        save_history(history_data)
 
     return queried, errors
 
@@ -221,6 +256,8 @@ def main():
                         help="查询配置文件中指定 label 的账号")
     parser.add_argument("--config", "-c", metavar="PATH",
                         help=f"配置文件路径（默认 {DEFAULT_CONFIG}）")
+    parser.add_argument("--save-history", action="store_true",
+                        help="查询后自动保存结果到 mimo-history.json")
 
     args = parser.parse_args()
 
@@ -253,14 +290,14 @@ def main():
                 print(f"未找到账号 '{args.account}'，可用账号: {labels}", file=sys.stderr)
                 sys.exit(1)
 
-        queried, _ = query_accounts(targets)
+        queried, _ = query_accounts(targets, save_history_flag=args.save_history)
         if queried == 0:
             sys.exit(1)
         return
 
     # 模式 3：有配置文件但没指定 --all/--account，也默认查全部
     if accounts:
-        queried, _ = query_accounts(accounts)
+        queried, _ = query_accounts(accounts, save_history_flag=args.save_history)
         if queried == 0:
             sys.exit(1)
         return

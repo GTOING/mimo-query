@@ -1,7 +1,7 @@
 ---
 name: mimo-query
 description: "Use when querying Xiaomi MiMo platform credits, managing MiMo accounts, or refreshing MiMo cookies. Multi-account CLI tool for platform.xiaomimimo.com with smart refresh workflow."
-version: 2.1.0
+version: 2.2.0
 author: User
 license: MIT
 platforms: [windows, macos, linux]
@@ -117,6 +117,73 @@ D:/mimo-query/
 └─────────────────────────────────────────────────────────┘
 ```
 
+## 查询历史记录（JSON 日志）
+
+每次查询后，使用 `--save-history` 参数将结果自动保存到本地 JSON 文件，供下次查询做对比分析。
+
+### 历史文件
+
+- 路径：`D:/mimo-query/mimo-history.json`
+- 格式：JSON 数组，每条记录包含时间戳和各账号数据
+- 保留最近 50 条记录（自动裁剪）
+
+### 记录格式
+
+```json
+{
+  "timestamp": "2026-05-22 12:26:03",
+  "accounts": {
+    "账号名": {
+      "plan": "Pro",
+      "quota": 700000000,
+      "used": 60125118,
+      "expires": "2026-06-19",
+      "auto_renew": false
+    }
+  }
+}
+```
+
+### 第三步（续）：保存查询结果到历史
+
+在第三步查询完成后，使用 `--save-history` 参数再次运行（或直接用带该参数的命令查询）。该参数用于配置文件账号查询流程；直接传 Cookie 的单账号模式不保存历史。
+
+```bash
+unset PYTHONHOME && unset UV_INTERNAL__PYTHONHOME && \
+  D:/mimo-query/.venv/Scripts/python.exe D:/mimo-query/mimo-query.py --save-history
+```
+
+> 如果第三步已经用 `--save-history` 查询，则无需重复执行。
+
+### 第四步：读取历史记录生成分析报告
+
+在生成分析报告前，读取历史文件获取上次查询数据：
+
+```bash
+# 读取倒数第二条记录（上次查询）用于对比
+# 如果只有 1 条记录，说明是首次查询，无历史对比数据
+```
+
+**历史文件读取方式**：用 `read_file` 工具读取 `D:/mimo-query/mimo-history.json`，解析 JSON 数组：
+- `history[-1]` = 本次查询（刚保存的）
+- `history[-2]` = 上次查询（用于对比）
+- 如果数组长度 < 2，标注"首次查询，无历史对比数据"
+
+**对比计算**：
+- 时间间隔 = 本次 timestamp - 上次 timestamp（小时）
+- 各账号增量 = 本次 used - 上次 used
+- 每小时消耗 = 增量 / 时间间隔
+
+## ⚠️ 执行完整性要求（必须遵守）
+
+当用户要求"执行查询skill"或触发此 skill 时，**必须严格执行上述四步工作流的每一步**，尤其是第四步的详细分析报告。不得跳过任何步骤。
+
+常见错误：
+- ❌ 只运行脚本不生成分析报告
+- ❌ 只输出原始数据不整理为表格
+- ❌ 跳过用量对比、消耗趋势、剩余时间预估
+- ❌ 不保存查询历史（必须用 --save-history）
+
 ## 查询分析报告
 
 每次查询完成后，必须生成详细的分析总结，包含以下内容：
@@ -190,18 +257,18 @@ unset PYTHONHOME && unset UV_INTERNAL__PYTHONHOME && \
 unset PYTHONHOME && unset UV_INTERNAL__PYTHONHOME && \
   D:/mimo-query/.venv/Scripts/python.exe D:/mimo-query/auto_login.py -a "过期账号1,过期账号2"
 
-# 3. 再次查询获取最终结果
+# 3. 再次查询获取最终结果 + 保存历史
 unset PYTHONHOME && unset UV_INTERNAL__PYTHONHOME && \
-  D:/mimo-query/.venv/Scripts/python.exe D:/mimo-query/mimo-query.py
+  D:/mimo-query/.venv/Scripts/python.exe D:/mimo-query/mimo-query.py --save-history
 ```
 
 ### 一键命令（组合）
 
 ```bash
-# 检测 + 刷新 + 查询（智能模式，自动跳过有效的）
+# 检测 + 刷新 + 查询（智能模式，自动跳过有效的）+ 保存历史
 unset PYTHONHOME && unset UV_INTERNAL__PYTHONHOME && \
   D:/mimo-query/.venv/Scripts/python.exe D:/mimo-query/auto_login.py && \
-  D:/mimo-query/.venv/Scripts/python.exe D:/mimo-query/mimo-query.py
+  D:/mimo-query/.venv/Scripts/python.exe D:/mimo-query/mimo-query.py --save-history
 ```
 
 > **Shell 变量简写**：`MIMO_PY="unset PYTHONHOME && unset UV_INTERNAL__PYTHONHOME && D:/mimo-query/.venv/Scripts/python.exe"`
@@ -371,26 +438,16 @@ unset PYTHONHOME && unset UV_INTERNAL__PYTHONHOME && \
 
 ## 定时任务集成
 
-可用 Hermes cron 定时执行智能刷新和查询流程。
+可用 Hermes cron 定时执行智能刷新、查询和历史记录保存流程。
 
 ### 快速配置
 
 ```bash
-# 每天早上 9 点智能刷新 + 查询
+# 每天早上 9 点智能刷新 + 查询 + 保存历史
 hermes cron create \
   --name "mimo-daily-query" \
   --schedule "0 9 * * *" \
-  --prompt "执行 MiMo 套餐查询智能工作流：
-1. 运行 mimo-query.py 检测所有账号状态
-2. 解析输出，识别需要刷新的账号（Cookie 过期或无 Cookie）
-3. 仅对需要刷新的账号运行 auto_login.py -a "账号1,账号2"
-4. 再次运行 mimo-query.py 获取最终结果
-5. 格式化输出：各账号套餐详情 + 刷新结果摘要
-6. 生成详细分析报告：
-   - 与上次查询的用量对比（增量、每小时消耗）
-   - 消耗趋势分析（上升/平稳/下降）
-   - 剩余使用时间预估（单账号+总计）
-   - 关注提醒（消耗快的账号、需手动处理的账号）" \
+  --prompt "严格按照已加载的 mimo-query skill 执行完整的四步智能刷新工作流。不得跳过任何步骤，尤其是第四步的详细分析报告。" \
   --deliver "telegram" \
   --toolsets "terminal"
 ```
@@ -423,3 +480,5 @@ D:/mimo-query/.venv/Scripts/python.exe -m pip install selenium cryptography webd
 - [ ] 如需自动登录，`selenium` 和 `cryptography` 已安装
 - [ ] Chrome 浏览器已安装（auto_login.py 需要）
 - [ ] PYTHONHOME 冲突已处理（每次运行前清除）
+- [ ] `mimo-query.py --save-history` 能正常写入 `mimo-history.json`
+- [ ] `mimo-history.json` 中至少有 1 条记录（首次查询无对比，2 条以上可做对比分析）
