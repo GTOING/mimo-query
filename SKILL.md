@@ -1,7 +1,7 @@
 ---
 name: mimo-query
 description: "Use when querying Xiaomi MiMo platform credits, managing MiMo accounts, or refreshing MiMo cookies. Multi-account CLI tool for platform.xiaomimimo.com with smart refresh workflow."
-version: 2.2.0
+version: 2.3.0
 author: User
 license: MIT
 platforms: [windows, macos, linux]
@@ -146,7 +146,7 @@ D:/mimo-query/
 
 ### 第三步（续）：保存查询结果到历史
 
-在第三步查询完成后，使用 `--save-history` 参数再次运行（或直接用带该参数的命令查询）。该参数用于配置文件账号查询流程；直接传 Cookie 的单账号模式不保存历史。
+在第三步查询完成后，使用 `--save-history` 参数再次运行（或直接用带该参数的命令查询）：
 
 ```bash
 unset PYTHONHOME && unset UV_INTERNAL__PYTHONHOME && \
@@ -221,27 +221,27 @@ unset PYTHONHOME && unset UV_INTERNAL__PYTHONHOME && \
 📊 用量分析报告
 
 ▸ 与上次查询对比（3.2小时前）
-  • xqh***：↑ 104万（每小时约32万）
-  • gem***：↑ 98万（每小时约30万）
-  • 191***：↑ 29万（每小时约9万）
-  • 297***：↑ 153万（每小时约48万）
+  • xqh1667399679：↑ 104万（每小时约32万）
+  • geminixqh：↑ 98万（每小时约30万）
+  • 191qq：↑ 29万（每小时约9万）
+  • 297qq：↑ 153万（每小时约48万）
 
 ▸ 消耗趋势
-  • 297***：📈 上升（上次每小时约20万 → 本次48万）
-  • xqh***：➡️ 平稳
-  • gem***：➡️ 平稳
-  • 191**：📉 下降
+  • 297qq：📈 上升（上次每小时约20万 → 本次48万）
+  • xqh1667399679：➡️ 平稳
+  • geminixqh：➡️ 平稳
+  • 191qq：📉 下降
 
 ▸ 剩余使用时间预估（按当前消耗速率）
-  • xqh***：约 794小时（~33天）
-  • gem***：约 832小时（~35天）
-  • 191***：约 3,203小时（~133天）
-  • 297***：约 603小时（~25天）⚠️
+  • xqh1667399679：约 794小时（~33天）
+  • geminixqh：约 832小时（~35天）
+  • 191qq：约 3,203小时（~133天）
+  • 297qq：约 603小时（~25天）⚠️
   • 总余额预估：约 534小时（~22天）
 
 ▸ 关注提醒
-  • ⚠️ 297*** 消耗较快，建议关注
-  • ⚠️ gem*** 仍需手动手机验证
+  • ⚠️ 297qq 消耗较快，建议关注
+  • ⚠️ geminixqh2 仍需手动手机验证
 ```
 
 ## 快速命令
@@ -310,7 +310,8 @@ $env:PYTHONHOME=""; $env:UV_INTERNAL__PYTHONHOME=""; \
 |------|------|
 | （无参数） | 智能刷新：只刷新过期 Cookie |
 | `--add` | 添加/更新账号（交互式输入） |
-| `--show` | 显示所有账号信息（解密后明文） |
+| `--show` | 显示所有账号信息（默认脱敏） |
+| `--show-secrets` | 显示解密后的明文敏感信息（谨慎使用） |
 | `--check` | 检查所有 Cookie 有效性 |
 | `-a "名称"` | 刷新指定账号（逗号分隔支持多个） |
 | `--all` | 强制刷新所有账号（忽略有效性） |
@@ -430,15 +431,14 @@ unset PYTHONHOME && unset UV_INTERNAL__PYTHONHOME && \
 
 | 邮箱 | IMAP 服务器 | 特殊处理 |
 |------|------------|----------|
-| 163.com | `imap.163.com` | 需要授权码（非登录密码），登录前自动发 ID 命令 |
-| 126.com | `imap.126.com` | 需要授权码（非登录密码），登录前自动发 ID 命令 |
+| 163.com / 126.com | `imap.163.com` | 需要授权码（非登录密码），登录前自动发 ID 命令 |
 | qq.com / foxmail.com | `imap.qq.com` | 需要授权码 |
 | gmail.com | `imap.gmail.com` | 需要两步验证 + 应用专用密码 |
 | outlook / hotmail | `outlook.office365.com` | — |
 
 ## 定时任务集成
 
-可用 Hermes cron 定时执行智能刷新、查询和历史记录保存流程。
+详见 [references/cron-job.md](references/cron-job.md) — 定时任务参数、推送格式、管理命令。
 
 ### 快速配置
 

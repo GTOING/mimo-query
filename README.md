@@ -58,8 +58,7 @@ mimo-query/
 cd mimo-query
 conda create -n mimo python=3.13 -y
 conda activate mimo
-pip install -r requirements.txt
-pip install webdriver-manager  # 可选：系统没有 chromedriver 时自动下载
+pip install -r requirements.txt  # 已包含 webdriver-manager，用于系统没有 chromedriver 时自动下载
 ```
 
 > 如果不用 conda，也可以用 venv：
@@ -215,7 +214,7 @@ python3 login.py
 
 支持 Cookie 有效性检查、选择性刷新、多账号批量操作。
 
-**需要安装依赖**：`selenium`、`cryptography`（`webdriver-manager` 可选）
+**需要安装依赖**：`selenium`、`cryptography`、`webdriver-manager`
 
 ### 用法总览
 
@@ -223,8 +222,11 @@ python3 login.py
 # 添加/更新账号（交互式输入）
 python3 auto_login.py --add
 
-# 显示所有账号信息（解密）
+# 显示所有账号信息（默认脱敏）
 python3 auto_login.py --show
+
+# 谨慎：显示解密后的明文敏感信息
+python3 auto_login.py --show-secrets
 
 # 检查所有 Cookie 有效性
 python3 auto_login.py --check
@@ -271,25 +273,31 @@ IMAP 服务器（默认自动识别，直接回车）:
 python3 auto_login.py --show
 ```
 
-输出示例（密码和授权码为解密后的明文）：
+输出示例（默认脱敏）：
 ```
+提示：敏感字段默认脱敏；如确需明文，请使用 --show-secrets。
 ────────────────────────────────────────
 账号: 主账号
-用户名: 13800138000
-密码: xiaomi_password_123
-邮箱: xxx@163.com
-邮箱授权码: IMAXXXXXXXAUTHCODE
+用户名: 138****8000
+密码: ******
+邮箱: x***x@163.com
+邮箱授权码: ******
 IMAP: imap.163.com
 Cookie: ✓ 已有（320 字符）
 ────────────────────────────────────────
 账号: 备用账号
-用户名: user@gmail.com
-密码: gmail_password_456
-邮箱: user@gmail.com
-邮箱授权码: XXXX XXXX XXXX XXXX
+用户名: use****.com
+密码: ******
+邮箱: u***r@gmail.com
+邮箱授权码: ******
 IMAP: imap.gmail.com
 Cookie: ✗ 未获取，运行 auto_login.py 可自动刷新
 ────────────────────────────────────────
+```
+
+如确需本机调试明文，使用：
+```bash
+python3 auto_login.py --show-secrets
 ```
 
 ### --check 检查 Cookie 有效性
@@ -497,8 +505,11 @@ python3 mimo-query.py
 ### 场景六：查看账号配置
 
 ```bash
-# 查看解密后的账号信息
+# 查看脱敏后的账号信息
 python3 auto_login.py --show
+
+# 谨慎：查看解密后的明文账号信息
+python3 auto_login.py --show-secrets
 
 # 检查 Cookie 有效性
 python3 auto_login.py --check
@@ -574,7 +585,7 @@ python3 mimo-query.py -c /path/to/config.json
 
 ### Q: 密码安全吗
 
-`--add` 输入的密码使用本机硬件 ID 派生的密钥加密存储（Fernet + PBKDF2），仅本机可解密。使用 `--show` 可查看解密后的明文。
+`--add` 输入的密码使用本机硬件 ID 派生的密钥加密存储（Fernet + PBKDF2），仅本机可解密。使用 `--show` 默认脱敏查看，确需明文时使用 `--show-secrets`。
 
 ### Q: 可以不用 conda 吗
 
@@ -655,4 +666,4 @@ Fernet 对称加密 (AES-128-CBC + HMAC-SHA256)
 - Fernet 内置 HMAC-SHA256，防篡改
 - 同一台机器上任何用户都能解密（没有额外口令保护）
 
-使用 `python3 auto_login.py --show` 可以查看解密后的所有账号信息。
+使用 `python3 auto_login.py --show` 可以查看脱敏后的账号信息；确需本机明文调试时使用 `python3 auto_login.py --show-secrets`。

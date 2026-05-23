@@ -10,21 +10,35 @@ import urllib.error
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
-MIMO_ORIGIN = "https://platform.xiaomimimo.com"
+from common import COOKIE_FIELDS, MIMO_ORIGIN, build_cookie
 
 ENDPOINTS = {
     "detail": "/api/v1/tokenPlan/detail",
     "usage": "/api/v1/tokenPlan/usage",
 }
 
-COOKIE_FIELDS = [
-    "api-platform_slh",
-    "api-platform_ph",
-    "api-platform_serviceToken",
-    "userId",
-]
-
 DEFAULT_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mimo-accounts.json")
+
+
+class MimoQueryError(RuntimeError):
+    """Base error with a stable type for machine parsing."""
+    error_type = "api_error"
+
+
+class CookieExpiredError(MimoQueryError):
+    error_type = "unauthorized"
+
+
+class NetworkError(MimoQueryError):
+    error_type = "network_error"
+
+
+class ApiError(MimoQueryError):
+    error_type = "api_error"
+
+
+def classify_error(exc):
+    return getattr(exc, "error_type", "unknown_error")
 
 
 def request_api(path, cookie):
@@ -35,10 +49,22 @@ def request_api(path, cookie):
         "X-Timezone": "Asia/Shanghai",
         "Cookie": cookie,
     })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise CookieExpiredError(f"HTTP {e.code}: Cookie 已过期或无权限") from e
+        raise NetworkError(f"HTTP {e.code}: {e.reason}") from e
+    except urllib.error.URLError as e:
+        raise NetworkError(f"网络错误: {e.reason}") from e
+    except TimeoutError as e:
+        raise NetworkError("网络超时") from e
     if data.get("code") != 0:
-        raise RuntimeError(data.get("message") or f"API error code {data.get('code')}")
+        message = data.get("message") or f"API error code {data.get('code')}"
+        if str(data.get("code")) in {"401", "403"} or "unauthorized" in message.lower():
+            raise CookieExpiredError(message)
+        raise ApiError(message)
     return data.get("data")
 
 
@@ -52,7 +78,7 @@ def build_cookie_from_args(args):
 
     known = {f for f in COOKIE_FIELDS if f in pairs}
     if known:
-        return "; ".join(f"{k}={v}" for k, v in pairs.items())
+        return build_cookie(pairs)
 
     return args[0] if args else ""
 
@@ -65,7 +91,7 @@ def build_cookie_from_env():
         if val:
             pairs[field] = val
     if pairs:
-        return "; ".join(f"{k}={v}" for k, v in pairs.items())
+        return build_cookie(pairs)
     return os.environ.get("MIMO_COOKIE", "").strip()
 
 
@@ -173,8 +199,8 @@ def query_single(cookie):
     return fetch_subscription(cookie)
 
 
-def query_accounts(accounts, save_history_flag=False):
-    """并发查询多账号，按原始顺序输出结果"""
+def query_accounts(accounts, save_history_flag=False, output_json=False, dry_run=False):
+    """并发查询多账号，按原始顺序输出结果。"""
     skipped = []  # (index, label, reason)
     futures = {}  # future -> (index, label)
 
@@ -185,7 +211,6 @@ def query_accounts(accounts, save_history_flag=False):
             else:
                 futures[pool.submit(query_single, cookie)] = (i, label)
 
-    # 收集结果（as_completed 不保证顺序，用 index 排序）
     results = {}  # index -> (label, info_or_exception)
     for future in futures:
         i, label = futures[future]
@@ -194,49 +219,59 @@ def query_accounts(accounts, save_history_flag=False):
         except Exception as e:
             results[i] = (label, e)
 
-    # 按原始顺序输出
     is_multi = len(accounts) > 1
     errors = 0
     queried = 0
     first = True
 
-    # 按 index 排序，合并 skipped 和 results
     all_items = sorted(
         [(i, label, reason, None) for i, label, reason in skipped] +
         [(i, label, None, res) for i, (label, res) in results.items()]
     )
 
-    # 收集结构化数据用于历史记录
     history_data = {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "accounts": {}}
 
     for i, label, reason, res in all_items:
-        if is_multi:
-            if not first:
-                print()
-            first = False
-            print(f"=== {label} ===")
         if reason:
-            print(f"跳过: {reason}")
             errors += 1
             history_data["accounts"][label] = {"status": "skipped", "reason": reason}
             continue
         queried += 1
         if isinstance(res, Exception):
-            print(f"错误: {res}", file=sys.stderr)
             errors += 1
-            history_data["accounts"][label] = {"status": "error", "reason": str(res)}
-        else:
-            print_info(res, label=None if is_multi else label)
             history_data["accounts"][label] = {
+                "status": "error",
+                "error_type": classify_error(res),
+                "reason": str(res),
+            }
+        else:
+            history_data["accounts"][label] = {
+                "status": "ok",
                 "plan": res.get("plan_name", ""),
                 "quota": res.get("total_credits", 0),
                 "used": res.get("used_credits", 0),
+                "usage_percent": res.get("usage_percent", 0),
                 "expires": res.get("current_period_end", ""),
                 "auto_renew": res.get("enable_auto_renew", False),
             }
 
-    # 保存历史记录
-    if save_history_flag and history_data["accounts"]:
+    if output_json:
+        print(json.dumps(history_data, ensure_ascii=False, indent=2))
+    else:
+        for i, label, reason, res in all_items:
+            if is_multi:
+                if not first:
+                    print()
+                first = False
+                print(f"=== {label} ===")
+            if reason:
+                print(f"跳过: {reason}")
+            elif isinstance(res, Exception):
+                print(f"错误: {res}", file=sys.stderr)
+            else:
+                print_info(res, label=None if is_multi else label)
+
+    if save_history_flag and history_data["accounts"] and not dry_run:
         save_history(history_data)
 
     return queried, errors
@@ -258,6 +293,10 @@ def main():
                         help=f"配置文件路径（默认 {DEFAULT_CONFIG}）")
     parser.add_argument("--save-history", action="store_true",
                         help="查询后自动保存结果到 mimo-history.json")
+    parser.add_argument("--json", action="store_true",
+                        help="以 JSON 格式输出，便于脚本解析")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="演练模式：执行查询但不写入历史文件")
 
     args = parser.parse_args()
 
@@ -290,14 +329,24 @@ def main():
                 print(f"未找到账号 '{args.account}'，可用账号: {labels}", file=sys.stderr)
                 sys.exit(1)
 
-        queried, _ = query_accounts(targets, save_history_flag=args.save_history)
+        queried, _ = query_accounts(
+            targets,
+            save_history_flag=args.save_history,
+            output_json=args.json,
+            dry_run=args.dry_run,
+        )
         if queried == 0:
             sys.exit(1)
         return
 
     # 模式 3：有配置文件但没指定 --all/--account，也默认查全部
     if accounts:
-        queried, _ = query_accounts(accounts, save_history_flag=args.save_history)
+        queried, _ = query_accounts(
+            accounts,
+            save_history_flag=args.save_history,
+            output_json=args.json,
+            dry_run=args.dry_run,
+        )
         if queried == 0:
             sys.exit(1)
         return

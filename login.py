@@ -12,16 +12,9 @@ import urllib.request
 import urllib.error
 import socket
 
-MIMO_ORIGIN = "https://platform.xiaomimimo.com"
+from common import COOKIE_FIELDS, MIMO_ORIGIN, build_cookie, parse_cookie_string
 LOGIN_URL = f"{MIMO_ORIGIN}/login"
 DETAIL_API = f"{MIMO_ORIGIN}/api/v1/tokenPlan/detail"
-
-COOKIE_FIELDS = [
-    "api-platform_slh",
-    "api-platform_ph",
-    "api-platform_serviceToken",
-    "userId",
-]
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mimo-accounts.json")
 
@@ -135,35 +128,6 @@ document.getElementById("form").addEventListener("submit", async function(e) {
 </html>"""
 
 
-def parse_cookie_string(raw):
-    """从原始 cookie 字符串提取目标字段，支持标准格式和 Chrome DevTools 表格格式"""
-    pairs = {}
-
-    if "\t" in raw:
-        # Chrome DevTools 表格格式：每行一个 cookie，Tab 分隔列
-        for line in raw.strip().splitlines():
-            cols = line.split("\t")
-            if len(cols) >= 2:
-                name = cols[0].strip()
-                value = cols[1].strip().strip('"')
-                if name:
-                    pairs[name] = value
-    else:
-        # 标准格式：key=value; key2=value2
-        for part in raw.split(";"):
-            part = part.strip()
-            if "=" in part:
-                k, v = part.split("=", 1)
-                pairs[k.strip()] = v.strip()
-
-    result = {}
-    for field in COOKIE_FIELDS:
-        val = pairs.get(field, "").strip()
-        if val:
-            result[field] = val
-    return result
-
-
 def validate_cookie(cookie_str):
     """调用 API 验证 cookie 是否有效，返回 (ok, message, plan_name)"""
     req = urllib.request.Request(DETAIL_API, method="GET", headers={
@@ -200,10 +164,6 @@ def save_config(accounts):
     """保存配置文件"""
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(accounts, f, ensure_ascii=False, indent=2)
-
-
-def build_cookie(fields):
-    return "; ".join(f"{k}={v}" for k, v in fields.items())
 
 
 class Handler(http.server.BaseHTTPRequestHandler):

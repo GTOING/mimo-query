@@ -6,23 +6,18 @@ import base64
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
 from getpass import getpass
 
+from common import COOKIE_FIELDS, MIMO_ORIGIN, mask_email, mask_secret
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "mimo-accounts.json")
 
-MIMO_ORIGIN = "https://platform.xiaomimimo.com"
 MIMO_CONSOLE = f"{MIMO_ORIGIN}/console/balance"
-
-COOKIE_FIELDS = [
-    "api-platform_slh",
-    "api-platform_ph",
-    "api-platform_serviceToken",
-    "userId",
-]
 
 # ── 加密 ──────────────────────────────────────────────────────────────────────
 
@@ -341,13 +336,26 @@ def auto_login_account(label, username, password, email_creds=None, timeout=120)
 
     opts = Options()
     opts.add_argument("--disable-blink-features=AutomationControlled")
-    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    # 使用独立用户数据目录，避免和已运行的 Chrome 冲突
+    import tempfile
+    tmp_profile = tempfile.mkdtemp(prefix="mimo-chrome-")
+    opts.add_argument(f"--user-data-dir={tmp_profile}")
+    opts.add_argument("--no-first-run")
+    opts.add_argument("--no-default-browser-check")
 
+    driver = None
     # 优先使用系统 chromedriver，失败再用 webdriver-manager 在线下载
     try:
         driver = webdriver.Chrome(options=opts)
-    except Exception:
-        from webdriver_manager.chrome import ChromeDriverManager
+    except Exception as first_error:
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+        except ImportError as import_error:
+            return False, (
+                "ChromeDriver 启动失败，且未安装 webdriver-manager。"
+                "请安装 webdriver-manager 或配置系统 chromedriver。"
+                f"原始错误: {first_error}; 导入错误: {import_error}"
+            )
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=opts)
 
@@ -392,7 +400,6 @@ def auto_login_account(label, username, password, email_creds=None, timeout=120)
 
             # 检测是否是手机验证（非邮箱），无法自动化则跳过
             if "安全手机" in page_text or "verifyPhone" in page_text:
-                driver.quit()
                 return False, "需要手机验证码，无法自动处理，已跳过"
 
             print(f"  检测到安全验证页，自动点击发送邮件...")
@@ -405,10 +412,8 @@ def auto_login_account(label, username, password, email_creds=None, timeout=120)
                 # 检测"验证码发送过多"等错误
                 page_text = driver.page_source
                 if "发送过多" in page_text or "明天再试" in page_text:
-                    driver.quit()
                     return False, "验证码发送过多，请明天再试"
                 if "频繁" in page_text:
-                    driver.quit()
                     return False, "操作过于频繁，请稍后再试"
 
                 print(f"  验证邮件已发送！")
@@ -462,7 +467,6 @@ def auto_login_account(label, username, password, email_creds=None, timeout=120)
                 break
             time.sleep(1)
         else:
-            driver.quit()
             return False, "超时：未检测到登录成功"
 
         print(f"  登录成功！正在抓取 Cookie...")
@@ -483,22 +487,21 @@ def auto_login_account(label, username, password, email_creds=None, timeout=120)
 
         missing = [f for f in COOKIE_FIELDS if f not in result]
         if missing:
-            driver.quit()
             return False, f"缺少字段: {', '.join(missing)}"
 
         cookie_str = "; ".join(f"{k}={v}" for k, v in result.items())
-        driver.quit()
         return True, cookie_str
 
     except Exception as e:
         print(f"  异常: {e}")
-        try:
-            driver.quit()
-        except Exception:
-            pass
         return False, str(e)
     finally:
-        pass
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+        shutil.rmtree(tmp_profile, ignore_errors=True)
 
 
 def refresh_account(account, timeout=120):
@@ -543,12 +546,15 @@ def refresh_account(account, timeout=120):
         return False
 
 
-def show_accounts():
-    """显示所有账号信息（解密）"""
+def show_accounts(show_secrets=False):
+    """显示所有账号信息；默认脱敏，show_secrets=True 时显示明文。"""
     accounts = load_config()
     if not accounts:
         print("没有账号，请先添加：python3 auto_login.py --add")
         return
+
+    if not show_secrets:
+        print("提示：敏感字段默认脱敏；如确需明文，请使用 --show-secrets。")
 
     for i, acc in enumerate(accounts):
         label = acc.get("label", f"账号 {i + 1}")
@@ -560,21 +566,30 @@ def show_accounts():
             enc = acc.get(field, "")
             if enc:
                 try:
-                    print(f"{display}: {decrypt_text(enc)}")
+                    plain = decrypt_text(enc)
+                    if show_secrets:
+                        shown = plain
+                    elif field == "username":
+                        shown = mask_secret(plain)
+                    else:
+                        shown = "******"
+                    print(f"{display}: {shown}")
                 except Exception:
                     print(f"{display}: (解密失败)")
 
         enc_email = acc.get("email", "")
         if enc_email:
             try:
-                print(f"邮箱: {decrypt_text(enc_email)}")
+                plain = decrypt_text(enc_email)
+                print(f"邮箱: {plain if show_secrets else mask_email(plain)}")
             except Exception:
                 print(f"邮箱: (解密失败)")
 
         enc_email_pass = acc.get("email_pass", "")
         if enc_email_pass:
             try:
-                print(f"邮箱授权码: {decrypt_text(enc_email_pass)}")
+                plain = decrypt_text(enc_email_pass)
+                print(f"邮箱授权码: {plain if show_secrets else '******'}")
             except Exception:
                 print(f"邮箱授权码: (解密失败)")
 
@@ -632,7 +647,8 @@ def check_cookies(accounts):
 def main():
     parser = argparse.ArgumentParser(description="MiMo 平台自动登录工具")
     parser.add_argument("--add", action="store_true", help="添加/更新账号（交互式输入用户名密码）")
-    parser.add_argument("--show", action="store_true", help="显示所有账号信息（解密）")
+    parser.add_argument("--show", action="store_true", help="显示所有账号信息（默认脱敏）")
+    parser.add_argument("--show-secrets", action="store_true", help="显示解密后的明文敏感信息（谨慎使用）")
     parser.add_argument("--check", action="store_true", help="检查所有账号 Cookie 有效性")
     parser.add_argument("-a", "--account", metavar="LABEL",
                         help="指定账号（逗号分隔支持多个，如 -a \"A,B\"）")
@@ -644,8 +660,8 @@ def main():
         add_account()
         return
 
-    if args.show:
-        show_accounts()
+    if args.show or args.show_secrets:
+        show_accounts(show_secrets=args.show_secrets)
         return
 
     accounts = load_config()

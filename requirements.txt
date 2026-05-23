@@ -2,5 +2,5 @@
 selenium>=4.20.0
 cryptography>=42.0.0
 
-# 可选：系统没有 chromedriver 时自动下载
-# webdriver-manager>=4.0.0
+# 系统没有 chromedriver 时自动下载
+webdriver-manager>=4.0.0
